@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "parsed_at": "2025-10-31T12:34:56Z",
+  "source": {
+    "url": "https://x.com/example/status/1234567890",
+    "embed_html": "<blockquote>...</blockquote>"
+  },
+  "raw_text": "【出勤】山田サクラ 11/05 18:00-23:00 #渋谷 #シフト",
+  "images": ["https://pbs.twimg.com/media/example.jpg"],
+  "hashtags": ["#渋谷", "#シフト"],
+  "names": [
+    { "name": "山田サクラ", "type": "stage", "confidence": 0.95 }
+  ],
+  "store": { "name": "渋谷店", "confidence": 0.9 },
+  "shifts": [
+    {
+      "date_raw": "11/05",
+      "date_iso": "2025-11-05",
+      "start_time": "18:00",
+      "end_time": "23:00",
+      "all_day": false,
+      "role": null,
+      "raw_text": "11/05 18:00-23:00",
+      "tags": [],
+      "confidence": 0.92
+    }
+  ],
+  "provenance": [
+    { "step": "fetch_oembed", "method": "oembed", "detail": "publish.twitter.com/oembed succeeded" },
+    { "step": "ocr_images", "method": "ocr_api", "detail": "no OCR needed" },
+    { "step": "nlp_parse", "method": "custom_prompt_v1", "detail": "date and times extracted" }
+  ],
+  "model": { "name": "custom-llm", "version": "2025-10-01" },
+  "confidence_overall": 0.9
+}

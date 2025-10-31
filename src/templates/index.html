@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>キャスト出勤カレンダー（認証対応）</title>
+  <style>
+    body{font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo; padding:20px;}
+    input[type=text]{width:80%;}
+    textarea{width:100%;height:140px;}
+    .btn{padding:8px 12px;margin:6px 0;}
+    .status{margin-bottom:12px;}
+    .meta{font-size:0.9rem;color:#444;margin-left:8px;}
+  </style>
+</head>
+<body>
+  <h1>キャスト出勤カレンダー（簡易）</h1>
+
+  <div class="status">
+    <button id="authStart" class="btn">X 認証（連携）</button>
+    <button id="logoutBtn" class="btn" style="display:none;background:#f66;color:#fff;">ログアウト</button>
+    <span id="userInfo">未認証</span>
+    <span id="userMeta" class="meta"></span>
+  </div>
+
+  <p>X投稿のURLを入力して解析します。認証がある場合は「X取得して解析」を使うと認証トークンで取得します。</p>
+
+  <input id="url" type="text" placeholder="https://x.com/..." />
+  <button id="go" class="btn">解析（非認証）</button>
+  <button id="goAuth" class="btn">X取得して解析（認証あり）</button>
+  <div id="result"></div>
+
+  <script>
+    async function fetchMe() {
+      try {
+        const r = await fetch('/auth/x/me', { credentials: 'same-origin' });
+        const j = await r.json();
+        return j;
+      } catch (e) {
+        return { ok: false };
+      }
+    }
+
+    function setAuthUI(info) {
+      if (info && info.authenticated) {
+        document.getElementById('userInfo').textContent = '認証ユーザ: ' + info.userId;
+        document.getElementById('logoutBtn').style.display = 'inline-block';
+        if (info.token) {
+          const exp = info.token.expires_in ? ('expires_in: ' + info.token.expires_in + 's') : '';
+          document.getElementById('userMeta').textContent = `${info.token.scope || ''} ${exp}`;
+        } else {
+          document.getElementById('userMeta').textContent = '';
+        }
+      } else {
+        document.getElementById('userInfo').textContent = '未認証';
+        document.getElementById('userMeta').textContent = '';
+        document.getElementById('logoutBtn').style.display = 'none';
+      }
+    }
+
+    // on load, check session via /auth/x/me
+    (async function initAuth() {
+      const me = await fetchMe();
+      setAuthUI(me);
+    })();
+
+    document.getElementById('authStart').onclick = () => {
+      window.open('/auth/x/start', '_blank', 'noopener');
+      alert('認証画面が開きます。完了後、この画面に戻って「X取得して解析」を実行してください。');
+    };
+
+    document.getElementById('logoutBtn').onclick = async () => {
+      await fetch('/auth/x/logout', { method: 'POST', credentials: 'same-origin' });
+      // refresh UI
+      const me = await fetchMe();
+      setAuthUI(me);
+      alert('ログアウトしました');
+    };
+
+    document.getElementById('go').onclick = async () => {
+      const url = document.getElementById('url').value.trim();
+      if(!url){ alert("URL 入力してください"); return; }
+      const r = await fetch('/api/parse', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ url }) });
+      const j = await r.json();
+      if(!j.ok){ alert(JSON.stringify(j)); return; }
+      displayParseResult(j, url);
+    };
+
+    document.getElementById('goAuth').onclick = async () => {
+      const url = document.getElementById('url').value.trim();
+      if(!url){ alert("URL 入力してください"); return; }
+      const r = await fetch('/auth/x/fetch_tweet', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ url }), credentials: 'same-origin' });
+      const j = await r.json();
+      if (!j.ok) {
+        alert('取得失敗: ' + (j.error || JSON.stringify(j)));
+        return;
+      }
+      let prefetch = { text: '', images: [], oembedHtml: null };
+      try {
+        if (j.data && j.data.html) {
+          prefetch.oembedHtml = j.data.html;
+          prefetch.text = '';
+        } else if (j.data && j.data.data && j.data.data.text) {
+          prefetch.text = j.data.data.text;
+          if (j.data.includes && j.data.includes.media) {
+            prefetch.images = j.data.includes.media.map(m => m.url || m.preview_image_url).filter(Boolean);
+          }
+        } else if (typeof j.data === 'string') {
+          prefetch.text = j.data;
+        } else {
+          prefetch.text = '';
+        }
+      } catch(e) { prefetch.text = ''; }
+
+      const r2 = await fetch('/api/parse', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ url, prefetch }) });
+      const j2 = await r2.json();
+      if(!j2.ok){ alert('解析失敗: ' + JSON.stringify(j2)); return; }
+      displayParseResult(j2, url);
+    };
+
+    // displayParseResult は既存の関数（または定義済みのもの）を使ってください
+    function displayParseResult(j, url) {
+      const resDiv = document.getElementById('result');
+      resDiv.innerHTML = '';
+      if (j.oembed) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = j.oembed;
+        resDiv.appendChild(wrap);
+      } else {
+        const p = document.createElement('pre');
+        p.textContent = (j.raw_text || '').slice(0,2000);
+        resDiv.appendChild(p);
+      }
+      const ta = document.createElement('textarea');
+      ta.id='parsed';
+      ta.value = JSON.stringify(j.parsed, null, 2);
+      resDiv.appendChild(ta);
+
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'カレンダーに登録（保存）';
+      saveBtn.className='btn';
+      saveBtn.onclick = async () => {
+        const parsed = JSON.parse(ta.value);
+        const r2 = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ parsed, source: url }) });
+        const j2 = await r2.json();
+        alert(JSON.stringify(j2));
+      };
+      resDiv.appendChild(saveBtn);
+    }
+  </script>
+</body>
+</html>

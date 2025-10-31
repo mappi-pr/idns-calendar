@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cast Shift Extraction Response",
+  "type": "object",
+  "required": ["version", "parsed_at", "source", "raw_text", "shifts"],
+  "properties": {
+    "version": { "type": "string", "description": "schema version" },
+    "parsed_at": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "embed_html": { "type": ["string", "null"] }
+      },
+      "required": ["url"]
+    },
+    "raw_text": { "type": "string", "description": "extracted full text (shortened if long)" },
+    "images": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" },
+      "default": []
+    },
+    "hashtags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "names": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["stage", "real", "unknown"], "default": "unknown" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      },
+      "default": []
+    },
+    "store": {
+      "type": ["object", "null"],
+      "properties": {
+        "name": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "shifts": {
+      "type": "array",
+      "description": "候補となるシフト情報の配列（順不問）",
+      "items": {
+        "type": "object",
+        "required": ["date_raw"],
+        "properties": {
+          "date_raw": { "type": "string", "description": "元テキスト上の表現（必須）" },
+          "date_iso": { "type": ["string", "null"], "description": "可能ならISO日付 YYYY-MM-DD" },
+          "start_time": { "type": ["string", "null"], "description": "HH:MM 形式または null" },
+          "end_time": { "type": ["string", "null"] },
+          "all_day": { "type": "boolean", "default": false },
+          "role": { "type": ["string", "null"], "description": "ポジション等（任意）" },
+          "raw_text": { "type": ["string", "null"] },
+          "tags": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": { "type": "string" },
+          "method": { "type": "string" },
+          "detail": { "type": "string" }
+        }
+      },
+      "default": []
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      },
+      "required": []
+    },
+    "confidence_overall": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+  },
+  "additionalProperties": false
+}

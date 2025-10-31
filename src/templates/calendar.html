@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>カレンダー（編集対応）</title>
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.4/main.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.4/main.min.js"></script>
+  <style>
+    body{font-family:system-ui;padding:16px;}
+    #calendar{max-width:900px;margin:0 auto;}
+    .modal{position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);}
+    .modal-inner{background:#fff;padding:16px;border-radius:6px;width:90%;max-width:600px;}
+    input[type=text], textarea{width:100%;padding:6px;margin:6px 0;}
+    label{font-weight:600;font-size:0.9rem;}
+    .row{display:flex;gap:8px;}
+    .col{flex:1;}
+  </style>
+</head>
+<body>
+  <h2>出勤カレンダー（編集・削除可能）</h2>
+  <div id="calendar"></div>
+
+  <!-- 編集モーダル -->
+  <div id="editModal" class="modal">
+    <div class="modal-inner">
+      <h3 id="modalTitle">イベント編集</h3>
+
+      <label>キャスト名</label>
+      <input id="evtName" type="text" />
+
+      <label>店舗</label>
+      <input id="evtStore" type="text" />
+
+      <div class="row">
+        <div class="col">
+          <label>日付 (YYYY-MM-DD)</label>
+          <input id="evtDate" type="text" />
+        </div>
+        <div class="col">
+          <label>時間（開始-終了 例: 18:00-23:00）</label>
+          <input id="evtTime" type="text" />
+        </div>
+      </div>
+
+      <label>備考 / raw</label>
+      <textarea id="evtRaw"></textarea>
+
+      <div style="margin-top:8px;text-align:right">
+        <button id="btnDeleteShift" style="margin-right:8px;color:#fff;background:#d33;border:none;padding:8px 12px;">このシフトを削除</button>
+        <button id="btnDeleteRecord" style="margin-right:8px;color:#fff;background:#a00;border:none;padding:8px 12px;">レコード全削除</button>
+        <button id="btnCancel" style="margin-right:8px;padding:8px 12px;">キャンセル</button>
+        <button id="btnSave" style="padding:8px 12px;background:#28a;color:#fff;border:none;">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentEvent = null;
+    document.addEventListener('DOMContentLoaded', function() {
+      const calendarEl = document.getElementById('calendar');
+      const calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        height: 'auto',
+        events: '/api/list',
+        eventClick: function(info) {
+          currentEvent = info.event;
+          const ep = info.event.extendedProps || {};
+          const parsed = JSON.parse(JSON.stringify(ep.parsed || {})); // deep copy
+          const shift = ep.shift || {};
+          const shiftIndex = (typeof ep.shiftIndex === 'number') ? ep.shiftIndex : 0;
+
+          document.getElementById('modalTitle').textContent = info.event.title || 'イベント編集';
+          // populate fields from parsed / shift
+          document.getElementById('evtName').value = (parsed.names && parsed.names[0]) ? parsed.names[0] : '';
+          document.getElementById('evtStore').value = parsed.store || '';
+          document.getElementById('evtDate').value = shift.date || shift.start || (info.event.start ? info.event.start.toISOString().slice(0,10) : '');
+          document.getElementById('evtTime').value = shift.time || ((shift.start_time||'') + (shift.end_time?'-'+shift.end_time:'')) || '';
+          document.getElementById('evtRaw').value = ep.raw || (shift.raw || '') || JSON.stringify(parsed,null,2);
+
+          // store parsed and indices on modal DOM for later
+          const modal = document.getElementById('editModal');
+          modal.dataset.sourceId = ep.sourceId || '';
+          modal.dataset.shiftIndex = String(shiftIndex);
+          modal.dataset.parsed = JSON.stringify(parsed);
+
+          openModal();
+        }
+      });
+      calendar.render();
+
+      document.getElementById('btnCancel').onclick = closeModal;
+
+      // シフト単体削除（parsed から該当 index を削除して /api/update を呼ぶ）
+      document.getElementById('btnDeleteShift').onclick = async () => {
+        const modal = document.getElementById('editModal');
+        const sourceId = modal.dataset.sourceId;
+        const shiftIndex = parseInt(modal.dataset.shiftIndex || '0', 10);
+        if(!sourceId){ alert('sourceId がありません'); return; }
+        if(!confirm('このシフトだけを削除しますか？')) return;
+        const parsed = JSON.parse(modal.dataset.parsed || '{}');
+        if(!Array.isArray(parsed.shifts) || parsed.shifts.length <= shiftIndex) {
+          alert('シフト情報が見つかりません');
+          return;
+        }
+        parsed.shifts.splice(shiftIndex, 1);
+        const res = await fetch('/api/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: sourceId, parsed }) });
+        const j = await res.json();
+        if(j.ok){ alert('シフトを削除しました'); closeModal(); location.reload(); } else { alert('削除失敗: '+JSON.stringify(j)); }
+      };
+
+      // レコード全削除（既存 /api/delete を利用）
+      document.getElementById('btnDeleteRecord').onclick = async () => {
+        const modal = document.getElementById('editModal');
+        const sourceId = modal.dataset.sourceId;
+        if(!sourceId){ alert('sourceId がありません'); return; }
+        if(!confirm('この投稿（レコード）を完全に削除しますか？')) return;
+        const res = await fetch('/api/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: sourceId }) });
+        const j = await res.json();
+        if(j.ok){ alert('レコードを削除しました'); closeModal(); location.reload(); } else { alert('削除失敗: '+JSON.stringify(j)); }
+      };
+
+      // 保存：フォーム値を parsed にマージして /api/update
+      document.getElementById('btnSave').onclick = async () => {
+        const modal = document.getElementById('editModal');
+        const sourceId = modal.dataset.sourceId;
+        const shiftIndex = parseInt(modal.dataset.shiftIndex || '0', 10);
+        if(!sourceId){ alert('sourceId がありません'); return; }
+
+        const parsed = JSON.parse(modal.dataset.parsed || '{}');
+        parsed.names = parsed.names || [];
+        const nameVal = document.getElementById('evtName').value.trim();
+        if(nameVal) parsed.names[0] = nameVal;
+        parsed.store = document.getElementById('evtStore').value.trim() || parsed.store;
+        parsed.shifts = parsed.shifts || [];
+        parsed.shifts[shiftIndex] = parsed.shifts[shiftIndex] || {};
+        parsed.shifts[shiftIndex].date = document.getElementById('evtDate').value.trim();
+        // 時間を分解して保存（簡易）
+        const timeVal = document.getElementById('evtTime').value.trim();
+        if(timeVal.includes('-')) {
+          const parts = timeVal.split('-');
+          parsed.shifts[shiftIndex].start_time = parts[0].trim();
+          parsed.shifts[shiftIndex].end_time = parts[1].trim();
+          parsed.shifts[shiftIndex].time = timeVal;
+        } else if (timeVal) {
+          parsed.shifts[shiftIndex].time = timeVal;
+        }
+        parsed.shifts[shiftIndex].raw = document.getElementById('evtRaw').value.trim();
+
+        const res = await fetch('/api/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: sourceId, parsed }) });
+        const j = await res.json();
+        if(j.ok){ alert('保存しました'); closeModal(); location.reload(); } else { alert('保存失敗: '+JSON.stringify(j)); }
+      };
+
+    });
+
+    function openModal(){ document.getElementById('editModal').style.display = 'flex'; }
+    function closeModal(){ document.getElementById('editModal').style.display = 'none'; currentEvent = null; document.getElementById('editModal').dataset.parsed = ''; }
+
+  </script>
+</body>
+</html>

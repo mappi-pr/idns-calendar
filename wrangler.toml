@@ -1,0 +1,39 @@
+name = "cal-app"
+type = "javascript"
+account_id = "YOUR_ACCOUNT_ID" # ← 実運用で置換
+compatibility_date = "2025-01-01"
+
+# 例: D1 バインディング（作成後に反映）
+[[d1_databases]]
+binding = "DB"
+database_name = "cal_shifts_db"
+
+# KV 名前空間バインディング（ワーカーでの使用）
+[[kv_namespaces]]
+binding = "SHIFTS_KV"
+id = "REPLACE_WITH_KV_ID"
+
+[[kv_namespaces]]
+binding = "LEARNED_KV"
+id = "REPLACE_WITH_LEARNED_KV_ID"
+
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "REPLACE_WITH_OAUTH_KV_ID"
+
+# Cron トリガー: 半月に1回（例: 15日ごと — cron で月2回のスケジュールを設定）
+# Cloudflare の cron_triggers は crontab 書式（UTC）
+# ここでは毎月1日と16日 UTC の 00:00 実行例
+cron_triggers = ["0 0 1 * *", "0 0 16 * *"]
+
+# 環境ごとの設定例
+[env.production]
+# account_id = "..."
+# route = "example.com/*"
+
+# 注意:
+# - X_CLIENT_ID, X_CLIENT_SECRET, X_REDIRECT_URI は wrangler secret put で設定してください
+#   wrangler secret put X_CLIENT_ID
+#   wrangler secret put X_CLIENT_SECRET
+#   wrangler secret put X_REDIRECT_URI
+# - redirect URI は X 開発者ポータルに登録したものと一致させてください
