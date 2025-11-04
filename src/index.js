@@ -1,5 +1,6 @@
 import { validateAIResponse, formatErrors } from "./validator.js";
 import * as oauthX from "./oauth_x.js";
+import { parseTwitterUrl } from './tweet_parser';
 
 // 追加: テンプレート読み込みとキャッシュ（templates フォルダから相対読み込み）
 const TEMPLATE_CACHE = {};
@@ -19,16 +20,6 @@ export default {
 	async fetch(request, env) {
 		try {
 			const url = new URL(request.url);
-
-			// 追加: OAuth me (cookie ベースでセッション情報を返す)
-			if (request.method === "GET" && url.pathname === "/auth/x/me") {
-				return await oauthX.handleMe(request, env);
-			}
-
-			// 変更: logout を POST で処理（cookie または body.userId）
-			if (request.method === "POST" && url.pathname === "/auth/x/logout") {
-				return await oauthX.handleLogout(request, env);
-			}
 
 			// ルート: テンプレートを読み込んで返すように変更
 			if (request.method === "GET" && (url.pathname === "/" || url.pathname === "")) {
@@ -95,74 +86,6 @@ export default {
 				const validationSummary = { valid: validation.valid, errors: validation.errors ? formatErrors(validation.errors) : null };
 
 				return jsonResponse({ ok: true, parsed, parsed_validated: validationSummary, oembed: oembedHtml, raw_text: pageText });
-			}
-
-			// 追加: OAuth start
-			if (request.method === "GET" && url.pathname === "/auth/x/start") {
-				return await oauthX.handleStart(request, env);
-			}
-
-			// 追加: OAuth callback
-			if (request.method === "GET" && url.pathname === "/auth/x/callback") {
-				return await oauthX.handleCallback(request, env);
-			}
-
-			// 追加: fetch tweet using stored token (POST: { url, userId? })
-			if (request.method === "POST" && url.pathname === "/auth/x/fetch_tweet") {
-				const body = await request.json().catch(()=>null);
-				if (!body || !body.url) return jsonResponse({ ok:false, error: "url required" }, 400);
-				try {
-					const data = await oauthX.fetchTweetForUrl(body.url, env, body.userId);
-					return jsonResponse({ ok:true, data });
-				} catch (e) {
-					return jsonResponse({ ok:false, error: String(e) }, 500);
-				}
-			}
-
-			if (url.pathname === "/api/save" && request.method === "POST") {
-				const body = await request.json();
-				const { parsed, source } = body;
-				if (!parsed) return jsonResponse({ ok: false, error: "parsed required" }, 400);
-
-				// バリデーション: スキーマ準拠でない場合は保存を拒否（運用要件に応じて緩和可）
-				const validation = validateAIResponse(parsed);
-				if (!validation.valid) {
-					return jsonResponse({ ok: false, error: "parsed does not match schema", validation: { valid: false, errors: validation.errors } }, 400);
-				}
-
-				const item = {
-					id: crypto.randomUUID(),
-					parsed,
-					source: source || null,
-					created_at: new Date().toISOString()
-				};
-
-				// Try D1 first
-				if (env.DB && typeof env.DB.prepare === "function") {
-					try {
-						// D1 expects SQL. Table example:
-						// CREATE TABLE IF NOT EXISTS shifts (id TEXT PRIMARY KEY, payload JSON, source TEXT, created_at TEXT);
-						await env.DB.prepare("INSERT INTO shifts (id, payload, source, created_at) VALUES (?, ?, ?, ?)")
-							.bind(item.id, JSON.stringify(item.parsed), item.source, item.created_at)
-							.run();
-						return jsonResponse({ ok: true, stored: { engine: "D1", id: item.id } });
-					} catch (e) {
-						// fallback to KV below
-					}
-				}
-
-				// Fallback: Workers KV (binding name: SHIFTS_KV)
-				if (env.SHIFTS_KV && env.SHIFTS_KV.put) {
-					try {
-						await env.SHIFTS_KV.put(item.id, JSON.stringify(item));
-						return jsonResponse({ ok: true, stored: { engine: "KV", id: item.id } });
-					} catch (e) {
-						return jsonResponse({ ok: false, error: "storage failed", detail: String(e) }, 500);
-					}
-				}
-
-				// No storage binding configured
-				return jsonResponse({ ok: false, error: "no storage configured" }, 500);
 			}
 
 			{

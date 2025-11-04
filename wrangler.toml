@@ -17,10 +17,6 @@ id = "REPLACE_WITH_KV_ID"
 binding = "LEARNED_KV"
 id = "REPLACE_WITH_LEARNED_KV_ID"
 
-[[kv_namespaces]]
-binding = "OAUTH_KV"
-id = "REPLACE_WITH_OAUTH_KV_ID"
-
 # Cron トリガー: 半月に1回（例: 15日ごと — cron で月2回のスケジュールを設定）
 # Cloudflare の cron_triggers は crontab 書式（UTC）
 # ここでは毎月1日と16日 UTC の 00:00 実行例

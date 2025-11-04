@@ -2,11 +2,19 @@
 
 概要
 - Cloudflare Workers 上で簡易フロント + API を提供するサンプル実装。
-- X 投稿の URL を解析してシフト情報を抽出 -> 保存（D1 または KV）するフローを実現。
+- X 投稿の URL を oEmbed APIで解析してシフト情報を抽出 -> 保存（D1 または KV）するフローを実現。
+- 完全無料での運用を実現するため、Twitter APIは使用しない設計。
 
 注意点（重要）
-- 秘密情報（APIキーや client_secret 等）は絶対にリポジトリに含めないでください。Cloudflare の Secret 機能（wrangler secret put）を必ず使ってください。
-- 本 README は実装の「補足説明」を目的としています。実際のコードは src/ 配下や wrangler.toml を確認してください。
+- 秘密情報は絶対にリポジトリに含めないでください。
+- oEmbedの利用規約に従って実装してください。
+
+実装の流れ
+1. フロントエンドからシフト情報の投稿 URL を受け取る
+2. /api/parse で URL を検証し、oEmbed API を使ってツイート内容を取得
+3. 必要に応じて AI での解析を行い、シフト情報を抽出
+4. /api/save でシフト情報を保存（D1 または KV）
+5. 定期的に cron ジョブでシフト情報の更新や学習を実施
 
 期待されるファイル（cal フォルダ）
 - wrangler.toml
@@ -30,23 +38,22 @@
 必須 Secrets / 環境変数（wrangler secret put で登録）
 - AI_ENDPOINT (任意: 外部AIを利用する場合)
 - AI_KEY (任意)
-- X_CLIENT_ID
-- X_CLIENT_SECRET (アプリ設定による。必要なら)
-- X_REDIRECT_URI
-- X_POST_AUTH_REDIRECT (任意: コールバック後のリダイレクト先)
-- その他、環境別設定は wrangler.toml の env ブロックで管理
+※ X API関連の設定は不要になりました
 
 必須 KV / D1 バインディング名（wrangler.toml に反映）
 - SHIFTS_KV (保存フォールバック)
 - LEARNED_KV (学習結果保存)
-- OAUTH_KV (OAuth セッション／トークン保存)
-- D1 binding name: DB （使用する場合）
+※ OAUTH_KVは不要になりました
 
 重要な実装上の注意点（チェックリスト）
-- JSON import とバンドル
-  - src/validator.js が `import schema from "../schemas/ai_response_schema.json" assert { type: "json" }` を使うと、Cloudflare でバンドルが必要になります。wrangler + esbuild でのビルド／バンドルを確認してください。もし問題が出る場合は schema を JS ファイルとして export するか、文字列で読み込む実装に変更してください。
-- Workers 環境での crypto.subtle
-  - oauth_x.js の sha256Base64Url はブラウザの crypto.subtle を想定しています。Worker での実装は SubtleCrypto が利用可能ですが、ユニバーサルに動かす場合は代替実装を用意してください。
+- oEmbed APIの利用
+  - X の公開oEmbed API (https://publish.twitter.com/oembed) を利用してツイート内容を取得します
+  - レート制限に注意してください（キャッシュの活用を推奨）
+  - 埋め込みコンテンツの利用規約を遵守してください
+- スクレイピングの注意点
+  - robots.txtを確認し、適切なインターバルを設けてリクエストを行ってください
+  - User-Agentを適切に設定してください
+  - HTMLパースには信頼性の高いライブラリを使用してください
 - Cookie とセッション
   - コールバックで `Set-Cookie: cal_session=...; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=...` を返しています。デプロイ先が HTTPS であることを必須としてください（Cloudflare Pages / Workers は HTTPS）。
   - Cloudflare KV に TTL-per-key は直接は無いため、created_at を保存して有効期限チェックを行うか、定期バッチで掃除してください。
@@ -77,14 +84,14 @@
 - AI エンドポイントのレスポンスはまず ai_response_example.json に合わせて手動で保存して動作検証することを推奨します。
 
 制限事項（現在のプロトタイプ）
-- 大量データ運用、認証管理の多ユーザ運用、管理UI、権限付与などは未実装。  
-- AI の呼び出しや X API 呼び出しに対するレート制限対策は簡易実装のため、実運用ではキューやバックオフを導入してください。
+- oEmbed APIの制限により、非公開アカウントの投稿は取得できません
+- スクレイピングベースのため、X側の仕様変更に影響を受ける可能性があります
+- 大量リクエストは避け、適切なキャッシュ戦略を実装してください
 
 次の推奨追加実装（優先度）
-- 部分更新 API（shift 単体更新）をサーバ側で受け付けるとフロントがシンプルになる。  
-- イベント履歴／監査ログ（誰がいつ編集したか）を追加。  
-- 大量データは D1 に移行し、KV をメタ情報保管に限定。  
-- AI のローカル再検証用テストスイート（sample inputs → expected schema）を整備。
+- oEmbedレスポンスのキャッシュ機構の実装
+- バックオフ／リトライロジックの実装
+- HTMLパース結果の正規化処理の追加
 
 追加技術詳細（コマンド例・検証手順）
 
